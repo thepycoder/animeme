@@ -6,7 +6,7 @@ from typing import Tuple, List, Optional
 import numpy as np
 import qimage2ndarray
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import Qt, pyqtSignal as Signal, QRect
+from PyQt5.QtCore import Qt, pyqtSignal as Signal, QRect, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor, QPaintEvent, QMouseEvent, QPainterPath
 from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow, QSlider, QVBoxLayout, QWidget, QPushButton, \
     QGridLayout, QGroupBox, QFormLayout, QLineEdit, QHBoxLayout, QFileDialog, QAction, QComboBox, QSizePolicy, \
@@ -16,6 +16,25 @@ from gif import GifSequence, GifFrame
 from keyframes import TextAnimationKeyframe
 from templates import TextAnimationTemplate, MemeAnimationTemplate
 
+
+class PlayThread(QThread):
+    play_tick = pyqtSignal()
+
+    def __init__(self):
+        QThread.__init__(self)
+        self.running = False
+
+    def __del__(self):
+        self.running = False
+        self.wait()
+
+    def run(self):
+        self.running = True
+        while self.running:
+            # Send signal to move slider
+            self.play_tick.emit()
+            # wait
+            self.msleep(50)
 
 class TemplateSelectionPanel(QWidget):
 
@@ -571,6 +590,11 @@ class MainWindow(QMainWindow):
         self.frames_slider.valueChanged[int].connect(self.frames_viewer.handle_frame_update)
         self.frames_viewer.setCursor(QtGui.QCursor(Qt.CrossCursor))
 
+        self.playback = PlayThread()
+        self.playback.play_tick.connect(self.play_update_slider)
+        self.playback_button = QPushButton('Play', self)
+        self.playback_button.clicked.connect(self.on_play)
+
         # noinspection PyUnresolvedReferences
         self.text_template_properties_panel.text_template_properties_changed.connect(self.frames_viewer.update)
         # noinspection PyUnresolvedReferences
@@ -633,6 +657,7 @@ class MainWindow(QMainWindow):
 
         left_layout.addWidget(self.frames_viewer)
         left_layout.addWidget(self.frames_slider)
+        left_layout.addWidget(self.playback_button)
         left_layout.addWidget(self.template_selection_panel)
         left_layout.addWidget(self.add_text_template_button)
         left_layout.addWidget(self.delete_current_text_template_button)
@@ -657,6 +682,19 @@ class MainWindow(QMainWindow):
         # Trigger the initial refresh
         # noinspection PyUnresolvedReferences
         self.selected_text_template_changed.emit(self.meme_template.templates_list[0].id)
+
+    def play_update_slider(self):
+        tick_position = (self.current_frame_index + 1) % self.frames_slider.maximum()
+        self.frames_slider.setValue(tick_position)
+
+    def on_play(self):
+        if self.playback_button.text() == 'Play':
+            self.playback_button.setText('Stop')
+            self.playback.start()
+        else:
+            self.playback_button.setText('Play')
+            self.playback.running = False
+
 
     def on_click_delete_current_text_template(self):
         if len(self.meme_template.templates_list) > 1:
